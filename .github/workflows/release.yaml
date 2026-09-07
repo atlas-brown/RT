@@ -1,0 +1,65 @@
+name: Build and Release Packages
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+env:
+  TOOL: ${{ github.event.repository.name }}
+  DESC: An overlay type system for shell pipelines
+  VERSION: ${{ github.event.release.tag_name || github.ref_name }}
+
+jobs:
+  linux:
+    runs-on: ubuntu-latest
+    env:
+      HOMEBREW_TAP_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.release.tag_name || github.sha }}
+          fetch-depth: 1
+
+      - name: Install Dependencies
+        run: |
+          sudo apt update
+          sudo apt install -y ruby ruby-dev build-essential rpm rpm2cpio make
+          sudo gem install --no-document fpm
+
+      - name: Build Packages
+        run: |
+          VERSION="${VERSION#v}" \
+          REPO="${{ github.repository }}" \
+          RT_PACKAGE_MAINTAINER="atlas@brown.edu" \
+          bash scripts/build-packages.sh
+
+      - name: URL and SHA256
+        run: |
+          TAG="${VERSION}"
+          VER="${TAG#v}"
+          URL="${{ github.server_url }}/${{ github.repository }}/archive/refs/tags/${TAG}.tar.gz"
+          SHA256=$(curl -fsSL "$URL" | sha256sum | awk '{print $1}')
+          echo "URL=$URL" >> "$GITHUB_ENV"
+          echo "SHA256=$SHA256" >> "$GITHUB_ENV"
+          echo "VER=$VER" >> "$GITHUB_ENV"
+
+      - name: Print Version URL SHA
+        run: |
+          echo "VERSION=$VER"
+          echo "URL=$URL"
+          echo "SHA256=$SHA256"
+
+      - name: Upload to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ env.VERSION }}
+          files: |
+            pkg/linux/artifacts/*.deb
+            pkg/linux/artifacts/*.rpm
+          fail_on_unmatched_files: false
