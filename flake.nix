@@ -5,7 +5,11 @@
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
   };
 
-  outputs = {nixpkgs, ...}: let
+  outputs = {
+    self,
+    nixpkgs,
+    ...
+  }: let
     inherit (nixpkgs) lib;
     systems = [
       "x86_64-linux"
@@ -15,10 +19,15 @@
     ];
     forAllSystems = lib.genAttrs systems;
 
+    perSystem = forAllSystems (system: let
+      pkgs = nixpkgs.legacyPackages.${system};
+      python = pkgs.python312;
+      jdk = pkgs.jdk21;
+    in {inherit pkgs python jdk;});
+
     rtPackages = forAllSystems (
       system: let
-        pkgs = nixpkgs.legacyPackages.${system};
-        python = pkgs.python312;
+        inherit (perSystem.${system}) pkgs python jdk;
         inherit (python.pkgs) buildPythonPackage buildPythonApplication fetchPypi;
 
         libdash = buildPythonPackage rec {
@@ -31,6 +40,7 @@
           };
           build-system = [python.pkgs.setuptools];
           nativeBuildInputs = with pkgs; [autoconf automake libtool];
+          # clang
           env.CFLAGS = "-std=gnu17";
           postPatch = lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
             substituteInPlace setup.py --replace-fail 'libtoolize = "glibtoolize"' 'libtoolize = "libtoolize"'
@@ -64,8 +74,6 @@
           };
           build-system = [python.pkgs.setuptools];
         };
-
-        jdk = pkgs.jdk21;
       in
         buildPythonApplication {
           pname = "rt";
@@ -83,13 +91,27 @@
           ];
           pythonRelaxDeps = ["jpype1"];
           makeWrapperArgs = [
-            "--set JAVA_HOME ${jdk}"
-            "--prefix PATH : ${lib.makeBinPath [jdk]}"
-            "--set RT_AUTOMATON_JAR ${./jars/automaton.jar}"
+            "--set" "JAVA_HOME" "${jdk}"
+            "--prefix" "PATH" ":" "${lib.makeBinPath [jdk]}"
+            "--set" "RT_AUTOMATON_JAR" "${./jars/automaton.jar}"
           ];
           meta = {
             description = "An overlay type system for Unix shell pipelines";
+            homepage = "https://github.com/atlas-brown/rt";
+            license = {
+              deprecated = false;
+              spdxId = "MIT";
+              fullName = "MIT License";
+            };
+            maintainers = [
+              {
+                email = "atlas@brown.edu";
+                github = "atlas-brown";
+                name = "Atlas Group";
+              }
+            ];
             mainProgram = "rt";
+            platforms = lib.platforms.unix;
           };
         }
     );
@@ -109,5 +131,29 @@
         program = "${rtPackages.${system}}/bin/rti";
       };
     });
+
+    devShells = forAllSystems (system: let
+      inherit (perSystem.${system}) pkgs python jdk;
+    in {
+      default = pkgs.mkShell {
+        packages = [
+          python
+          pkgs.uv
+          jdk
+        ];
+
+        JAVA_HOME = "${jdk}";
+
+        shellHook = ''
+          echo "rt dev shell: uv sync && uv run rt --help"
+        '';
+      };
+    });
+
+    checks = forAllSystems (system: {
+      rt = rtPackages.${system};
+    });
+
+    formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
   };
 }
