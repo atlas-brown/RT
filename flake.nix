@@ -79,7 +79,14 @@
           pname = "rt";
           version = "0.1.0";
           pyproject = true;
-          src = lib.cleanSource ./.;
+          src = lib.fileset.toSource {
+            root = ./.;
+            fileset = lib.fileset.unions [
+              ./src
+              ./pyproject.toml
+              ./README.md
+            ];
+          };
           build-system = [python.pkgs.uv-build];
           dependencies = [
             python.pkgs.jpype1
@@ -90,6 +97,15 @@
             shasta
           ];
           pythonRelaxDeps = ["jpype1"];
+          env = {
+            JAVA_HOME = "${jdk}";
+            RT_AUTOMATON_JAR = "${./jars/automaton.jar}";
+          };
+          pythonImportsCheck = [
+            "rt.java_api"
+            "rt.main"
+            "rti.main"
+          ];
           makeWrapperArgs = [
             "--set" "JAVA_HOME" "${jdk}"
             "--prefix" "PATH" ":" "${lib.makeBinPath [jdk]}"
