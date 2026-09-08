@@ -1,0 +1,25 @@
+name: rt
+arch: all
+platform: linux
+version: 0.1.0
+section: utils
+priority: optional
+maintainer: atlas-brown <https://github.com/atlas-brown>
+description: Overlay type system for Unix shell pipelines
+homepage: https://github.com/atlas-brown/rt
+license: cannot_represent
+overrides:
+  deb:
+    recommends:
+      - docker.io
+  rpm:
+    recommends:
+      - moby-engine
+contents:
+  - src: scripts/run-in-container.sh
+    dst: /usr/bin/rt
+    file_info:
+      mode: 0755
+  - src: /usr/bin/rt
+    dst: /usr/bin/rti
+    type: symlink
