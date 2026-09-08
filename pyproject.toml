@@ -21,5 +21,8 @@ rti = "rti.main:cli_main"
 requires = ["uv_build>=0.8.15"]
 build-backend = "uv_build"
 
+[tool.uv.build-backend]
+module-name = ["rt", "rti"]
+
 [dependency-groups]
 dev = ["stubgenj>=0.2.12", "pytest>=9.0.3", "hypothesis>=6.155.7"]

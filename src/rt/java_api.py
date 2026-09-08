@@ -1,3 +1,5 @@
+import os
+
 import jpype
 import jpype.imports  # This module is imported for its side effects
 
@@ -7,7 +9,7 @@ def ensure_jvm():
     if not jpype.isJVMStarted():
         jpype.startJVM(
             "--enable-native-access=ALL-UNNAMED",  # Needed to suppress deprecation warning
-            classpath=["jars/automaton.jar"],
+            classpath=[os.environ.get("RT_AUTOMATON_JAR", "jars/automaton.jar")],
         )
 
 
