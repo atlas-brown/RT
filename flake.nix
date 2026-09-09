@@ -3,11 +3,37 @@
 
   inputs = {
     nixpkgs.url = "github:nixos/nixpkgs/nixos-unstable";
+
+    pyproject-nix = {
+      url = "github:pyproject-nix/pyproject.nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    uv2nix = {
+      url = "github:pyproject-nix/uv2nix";
+      inputs.pyproject-nix.follows = "pyproject-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    pyproject-build-systems = {
+      url = "github:pyproject-nix/build-system-pkgs";
+      inputs.pyproject-nix.follows = "pyproject-nix";
+      inputs.uv2nix.follows = "uv2nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    uv2nix_hammer_overrides = {
+      url = "github:TyberiusPrime/uv2nix_hammer_overrides";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs = {
-    self,
     nixpkgs,
+    pyproject-nix,
+    uv2nix,
+    pyproject-build-systems,
+    uv2nix_hammer_overrides,
     ...
   }: let
     inherit (nixpkgs) lib;
@@ -19,92 +45,85 @@
     ];
     forAllSystems = lib.genAttrs systems;
 
-    perSystem = forAllSystems (system: let
-      pkgs = nixpkgs.legacyPackages.${system};
-      python = pkgs.python312;
-      jdk = pkgs.jdk21;
-    in {inherit pkgs python jdk;});
+    workspace = uv2nix.lib.workspace.loadWorkspace {workspaceRoot = ./.;};
 
-    otherPythonPackages = {
-      pkgs,
-      python,
-    }: let
-      inherit (python.pkgs) buildPythonPackage fetchPypi;
-    in rec {
-      libdash = buildPythonPackage rec {
-        pname = "libdash";
-        version = "0.4.1";
-        pyproject = true;
-        src = fetchPypi {
-          inherit pname version;
-          hash = "sha256-c1g4RJn3zpyf2OB5BOZVlFEHteXuv/SQZR361iSRwXU=";
-        };
-        build-system = [python.pkgs.setuptools];
-        nativeBuildInputs = with pkgs; [autoconf automake libtool];
-        # clang
-        env.CFLAGS = "-std=gnu17";
-        postPatch = lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
-          substituteInPlace setup.py --replace-fail 'libtoolize = "glibtoolize"' 'libtoolize = "libtoolize"'
-        '';
-      };
-
-      shasta = buildPythonPackage rec {
-        pname = "shasta";
-        version = "0.5";
-        pyproject = true;
-        src = pkgs.fetchFromGitHub {
-          owner = "binpash";
-          repo = "shasta";
-          rev = "3ec173d6dc96e9007f5b582634f9315eafcac867";
-          hash = "sha256-royjA/t/KZLg8ouFWKyFCiuBKlMDlmBJ9nuXvGqZDbc=";
-        };
-        build-system = [python.pkgs.setuptools];
-      };
+    overlay = workspace.mkPyprojectOverlay {
+      sourcePreference = "wheel";
     };
+
+    editableOverlay = workspace.mkEditablePyprojectOverlay {
+      root = "$REPO_ROOT";
+    };
+
+    meta = {
+      description = "An overlay type system for Unix shell pipelines";
+      homepage = "https://github.com/atlas-brown/rt";
+      license = lib.licenses.mit;
+      mainProgram = "rt";
+      platforms = lib.platforms.unix;
+    };
+
+    wrapRt = {
+      pkgs,
+      jdk,
+      bin,
+    }:
+      pkgs.runCommand "rt-0.1.0" {
+        nativeBuildInputs = [pkgs.makeWrapper];
+        inherit meta;
+      } ''
+        mkdir -p "$out/bin"
+        makeWrapper ${bin}/rt "$out/bin/rt" \
+          --set JAVA_HOME ${jdk} \
+          --prefix PATH : ${lib.makeBinPath [jdk]} \
+          --set RT_AUTOMATON_JAR ${./jars/automaton.jar}
+        makeWrapper ${bin}/rti "$out/bin/rti" \
+          --set JAVA_HOME ${jdk} \
+          --prefix PATH : ${lib.makeBinPath [jdk]} \
+          --set RT_AUTOMATON_JAR ${./jars/automaton.jar}
+      '';
+
+    pythonSets = forAllSystems (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+        python = pkgs.python312;
+        pyprojectOverrides = final: prev: {
+          libdash = prev.libdash.overrideAttrs (old: {
+            nativeBuildInputs =
+              (old.nativeBuildInputs or [])
+              ++ (with pkgs; [autoconf automake libtool])
+              ++ final.resolveBuildSystem {setuptools = [];};
+            env = (old.env or {}) // {CFLAGS = "-std=gnu17";};
+            postPatch =
+              (old.postPatch or "")
+              + lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
+                substituteInPlace setup.py --replace-fail 'libtoolize = "glibtoolize"' 'libtoolize = "libtoolize"'
+              '';
+          });
+        };
+      in
+        (pkgs.callPackage pyproject-nix.build.packages {
+          inherit python;
+        }).overrideScope (
+          lib.composeManyExtensions [
+            pyproject-build-systems.overlays.default
+            overlay
+            (uv2nix_hammer_overrides.overrides pkgs)
+            pyprojectOverrides
+          ]
+        )
+    );
 
     rtPackages = forAllSystems (
       system: let
-        inherit (perSystem.${system}) pkgs python jdk;
-        inherit (python.pkgs) buildPythonApplication;
-        inherit (otherPythonPackages {inherit pkgs python;}) libdash shasta;
+        pkgs = nixpkgs.legacyPackages.${system};
+        pythonSet = pythonSets.${system};
+        venv = pythonSet.mkVirtualEnv "rt-env" workspace.deps.default;
       in
-        buildPythonApplication {
-          pname = "rt";
-          version = "0.1.0";
-          pyproject = true;
-          src = lib.cleanSource ./.;
-          build-system = [python.pkgs.uv-build];
-          dependencies = [
-            python.pkgs.jpype1
-            python.pkgs.pyyaml
-            python.pkgs.platformdirs
-            libdash
-            shasta
-          ];
-          pythonRelaxDeps = ["jpype1"];
-          makeWrapperArgs = [
-            "--set" "JAVA_HOME" "${jdk}"
-            "--prefix" "PATH" ":" "${lib.makeBinPath [jdk]}"
-            "--set" "RT_AUTOMATON_JAR" "${./jars/automaton.jar}"
-          ];
-          meta = {
-            description = "An overlay type system for Unix shell pipelines";
-            homepage = "https://github.com/atlas-brown/rt";
-            license = {
-              deprecated = false;
-              spdxId = "MIT";
-              fullName = "MIT License";
-            };
-            maintainers = [
-              {
-                email = "atlas@brown.edu";
-                github = "atlas-brown";
-                name = "ATLAS Group";
-              }
-            ];
-            mainProgram = "rt";
-            platforms = lib.platforms.unix;
-          };
+        wrapRt {
+          inherit pkgs;
+          jdk = pkgs.jdk21;
+          bin = "${venv}/bin";
         }
     );
   in {
@@ -124,25 +143,33 @@
       };
     });
 
-    devShells = forAllSystems (system: let
-      inherit (perSystem.${system}) pkgs python jdk;
-    in {
-      default = pkgs.mkShell {
-        packages = [
-          python
-          pkgs.uv
-          jdk
-        ];
-        JAVA_HOME = "${jdk}";
-        env = {
+    devShells = forAllSystems (
+      system: let
+        pkgs = nixpkgs.legacyPackages.${system};
+        jdk = pkgs.jdk21;
+        editablePythonSet = pythonSets.${system}.overrideScope editableOverlay;
+        virtualenv = editablePythonSet.mkVirtualEnv "rt-dev-env" workspace.deps.all;
+      in {
+        default = pkgs.mkShell {
+          packages = [
+            virtualenv
+            pkgs.uv
+            jdk
+          ];
+          env = {
             UV_NO_SYNC = "1";
+            UV_PYTHON = editablePythonSet.python.interpreter;
             UV_PYTHON_DOWNLOADS = "never";
+            JAVA_HOME = "${jdk}";
+          };
+          shellHook = ''
+            unset PYTHONPATH
+            export REPO_ROOT=$(git rev-parse --show-toplevel)
+            export RT_AUTOMATON_JAR="$REPO_ROOT/jars/automaton.jar"
+          '';
         };
-        shellHook = ''
-          unset PYTHONPATH
-        '';
-      };
-    });
+      }
+    );
 
     checks = forAllSystems (system: {
       rt = rtPackages.${system};
