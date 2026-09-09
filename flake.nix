@@ -115,7 +115,7 @@
               {
                 email = "atlas@brown.edu";
                 github = "atlas-brown";
-                name = "ATLAS Group";
+                name = "Atlas Group";
               }
             ];
             mainProgram = "rt";
