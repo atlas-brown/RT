@@ -10,7 +10,7 @@ dependencies = [
     "pyyaml>=6.0.3",
     "platformdirs>=4.10.0",
     "libdash @ git+https://github.com/binpash/libdash",
-    "shasta @ git+https://github.com/binpash/shasta",
+    "shasta @ git+https://github.com/binpash/shasta@main",
 ]
 
 [project.scripts]
