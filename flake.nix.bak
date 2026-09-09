@@ -19,13 +19,21 @@
     ];
     forAllSystems = lib.genAttrs systems;
 
+    # Shared per-system context (pkgs/python/jdk) so the package and the dev
+    # shell build from the exact same set of inputs instead of drifting apart.
     perSystem = forAllSystems (system: let
       pkgs = nixpkgs.legacyPackages.${system};
       python = pkgs.python312;
       jdk = pkgs.jdk21;
     in {inherit pkgs python jdk;});
 
-    otherPythonPackages = {
+    # --- Extra Python packages not (yet) in nixpkgs ---
+    # Defined once, at the top level, as a function of {pkgs, python} rather
+    # than duplicated inside every per-system `let` block. Each system still
+    # gets its own instantiation (called once below, per system, inside
+    # rtPackages) since pkgs/python are inherently per-system values - but
+    # the derivation logic itself now lives in exactly one place.
+    extraPythonPackages = {
       pkgs,
       python,
     }: let
@@ -41,14 +49,16 @@
         };
         build-system = [python.pkgs.setuptools];
         nativeBuildInputs = with pkgs; [autoconf automake libtool];
-        # clang
+        # Upstream's C sources rely on gnu17-only syntax; nixpkgs' default
+        # CFLAGS don't set a C standard, so this must be explicit or the
+        # build fails with -std mismatches on newer compilers.
         env.CFLAGS = "-std=gnu17";
         postPatch = lib.optionalString pkgs.stdenv.hostPlatform.isDarwin ''
           substituteInPlace setup.py --replace-fail 'libtoolize = "glibtoolize"' 'libtoolize = "libtoolize"'
         '';
       };
 
-    pash-annotations = buildPythonPackage rec {
+      pash-annotations = buildPythonPackage rec {
         pname = "pash-annotations";
         version = "0.2.4";
         format = "wheel";
@@ -81,7 +91,7 @@
       system: let
         inherit (perSystem.${system}) pkgs python jdk;
         inherit (python.pkgs) buildPythonApplication;
-        inherit (otherPythonPackages {inherit pkgs python;}) libdash pash-annotations shasta;
+        inherit (extraPythonPackages {inherit pkgs python;}) libdash pash-annotations shasta;
       in
         buildPythonApplication {
           pname = "rt";
@@ -115,7 +125,7 @@
               {
                 email = "atlas@brown.edu";
                 github = "atlas-brown";
-                name = "ATLAS Group";
+                name = "Atlas Group";
               }
             ];
             mainProgram = "rt";
@@ -140,6 +150,9 @@
       };
     });
 
+    # `nix develop` - a Docker-free environment for working on rt itself.
+    # Mirrors the README's `uv sync && uv run` flow, with the JDK already on
+    # PATH/JAVA_HOME so contributors don't need to install Java separately.
     devShells = forAllSystems (system: let
       inherit (perSystem.${system}) pkgs python jdk;
     in {
@@ -149,21 +162,21 @@
           pkgs.uv
           jdk
         ];
+
         JAVA_HOME = "${jdk}";
-        env = {
-            UV_NO_SYNC = "1";
-            UV_PYTHON_DOWNLOADS = "never";
-        };
+
         shellHook = ''
-          unset PYTHONPATH
+          echo "rt dev shell: uv sync && uv run rt --help"
         '';
       };
     });
 
+    # `nix flake check` - confirms the package itself builds on every system.
     checks = forAllSystems (system: {
       rt = rtPackages.${system};
     });
 
+    # `nix fmt` - keeps this file itself consistently formatted.
     formatter = forAllSystems (system: nixpkgs.legacyPackages.${system}.alejandra);
   };
 }
