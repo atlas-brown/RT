@@ -231,7 +231,7 @@ Requires [Docker](https://docs.docker.com/get-docker/).
 ### Nix / NixOS
 
 ```sh
-nix profile install github:atlas-brown/rt
+nix profile add github:atlas-brown/rt
 ```
 
 ### Build from source
