@@ -66,7 +66,7 @@
       system: let
         inherit (perSystem.${system}) pkgs python jdk;
         inherit (python.pkgs) buildPythonApplication;
-        inherit (otherPythonPackages {inherit pkgs python;}) libdash pash-annotations shasta;
+        inherit (otherPythonPackages {inherit pkgs python;}) libdash shasta;
       in
         buildPythonApplication {
           pname = "rt";
