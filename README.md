@@ -228,6 +228,12 @@ sudo dnf install -y ./rt-0.1.1.noarch.rpm
 
 Requires [Docker](https://docs.docker.com/get-docker/).
 
+### Nix / NixOS
+
+```sh
+nix profile add github:atlas-brown/rt
+```
+
 ### Build from source
 
 If you'd rather run natively, Rt uses [uv](https://docs.astral.sh/uv/) for
