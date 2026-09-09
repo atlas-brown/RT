@@ -48,21 +48,6 @@
         '';
       };
 
-    pash-annotations = buildPythonPackage rec {
-        pname = "pash-annotations";
-        version = "0.2.4";
-        format = "wheel";
-        src = fetchPypi {
-          pname = "pash_annotations";
-          inherit version;
-          format = "wheel";
-          python = "py3";
-          abi = "none";
-          platform = "any";
-          hash = "sha256-/0dab4EzOTM3t+HFpjloGeCDLB4mAcM0T5BcwsbUh9I=";
-        };
-      };
-
       shasta = buildPythonPackage rec {
         pname = "shasta";
         version = "0.5";
@@ -94,7 +79,6 @@
             python.pkgs.pyyaml
             python.pkgs.platformdirs
             libdash
-            pash-annotations
             shasta
           ];
           pythonRelaxDeps = ["jpype1"];
